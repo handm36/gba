@@ -7,10 +7,63 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+static SDL_AppResult parse_file(GBA_Memory *mem, char *path) {
+  FILE *file_ptr = fopen(path, "rb");
+
+  if (file_ptr == NULL) {
+    printf("No file specified\n");
+    return SDL_APP_FAILURE;
+  }
+
+  if (fseek(file_ptr, 0, SEEK_END) != 0) {
+    fclose(file_ptr);
+    printf("Failed to read file\n");
+    return SDL_APP_FAILURE;
+  }
+
+  long size = ftell(file_ptr);
+  if (size == -1) {
+    fclose(file_ptr);
+    printf("Failed to get file size\n");
+    return SDL_APP_FAILURE;
+  }
+
+  if ((size == 0) || (size >= MAX_ROM_SIZE)) {
+    fclose(file_ptr);
+    printf("Invalid GBA rom file\n");
+    return SDL_APP_FAILURE;
+  }
+  fseek(file_ptr, 0, SEEK_SET);
+
+  uint8_t *game_ROM = malloc(size);
+  if (game_ROM == NULL) {
+    fclose(file_ptr);
+    perror("Couldn't allocate memory");
+    return SDL_APP_FAILURE;
+  }
+
+  size_t ret = fread(game_ROM, 1, size, file_ptr);
+
+  if (ret != size) {
+    fclose(file_ptr);
+    free(game_ROM);
+    printf("Failed to read file\n");
+    return SDL_APP_FAILURE;
+  }
+
+  mem->game_ROM = game_ROM;
+  mem->rom_size = size;
+
+  fclose(file_ptr);
+  return SDL_APP_CONTINUE;
+}
 
 SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
-    SDL_Log("Couldn't initialize SDL: %s", SDL_GetError());
+    printf("Couldn't initialize SDL: %s", SDL_GetError());
     return SDL_APP_FAILURE;
   }
 

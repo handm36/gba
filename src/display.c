@@ -10,7 +10,7 @@ static SDL_Texture *texture;
 int init_display() {
   if (!SDL_CreateWindowAndRenderer("GBA", DISPLAY_WIDTH, DISPLAY_HEIGHT,
                                    SDL_WINDOW_RESIZABLE, &window, &renderer)) {
-    SDL_Log("Couldn't create window/renderer: %s", SDL_GetError());
+    printf("Couldn't create window/renderer: %s", SDL_GetError());
     return SDL_APP_FAILURE;
   }
   SDL_SetRenderLogicalPresentation(renderer, DISPLAY_WIDTH, DISPLAY_HEIGHT,
