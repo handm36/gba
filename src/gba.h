@@ -18,3 +18,59 @@ typedef struct {
   uint8_t *game_ROM;
   size_t rom_size;
 } GBA_Memory;
+
+typedef struct {
+  uint32_t regs[16];
+  uint32_t regs_fiq[7]; // starts from R8
+  uint32_t regs_svc[2]; // R13_svc and R14_svc
+  uint32_t regs_abt[2]; // R13_abt and R14_abt
+  uint32_t regs_irq[2]; // R13_irq and R14_irq
+  uint32_t regs_und[2]; // R13_und and R14_und
+  uint32_t regs_usr[2]; // R13 and R14 for user
+  uint32_t CPSR;
+  uint32_t SPSR_fiq;
+  uint32_t SPSR_svc;
+  uint32_t SPSR_abt;
+  uint32_t SPSR_irq;
+  uint32_t SPSR_und;
+} GBA_CPU;
+
+typedef enum {
+  BranchAndBranchExchange,
+  BlockDataTransfer,
+  BranchAndBranchWithLink,
+  SoftwareInterrupt,
+  Undefined,
+  SingleDataTransfer,
+  SingleDataSwap,
+  Multiply,
+  HalfwordDataTransferRegister,
+  HalfwordDataTransferImmediate,
+  PSRTransferMRS,
+  PSRTransferMSR,
+  DataProcessing,
+  Unimplemented,
+} Arm_Instructions;
+
+typedef enum {
+  SoftwareInterruptTHUMB,
+  UnconditionalBranch,
+  ConditionalBranch,
+  MultipleLoadstore,
+  LongBranchWithLink,
+  AddOffsetToStackPointer,
+  PushPopRegisters,
+  LoadStoreHalfword,
+  SPRelativeLoadStore,
+  LoadAddress,
+  LoadStoreWithImmediateOffset,
+  LoadStoreWithRegisterOffset,
+  LoadStoreSignExtendedByteHalfword,
+  PCRelativeLoad,
+  HiRegisterOperationsBranchExchange,
+  ALUOperations,
+  MoveCompareAddSubtractImmediate,
+  AddSubtract,
+  MoveShiftedRegister,
+  UnimplementedTHUMB
+} Thumb_Instructions;
