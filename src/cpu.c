@@ -2,6 +2,7 @@
 #include "gba.h"
 #include <stdint.h>
 #include <string.h>
+#include <sys/types.h>
 
 static uint8_t *resolve_addr(GBA_Memory *mem, uint32_t addr, uint8_t size) {
   size = size - 1; // added size - 1 so it equals last byte offset
@@ -375,20 +376,171 @@ static int check_condition_code(uint32_t CPSR, uint8_t condition_code) {
   return 0;
 }
 
+static void decode_data_processing(GBA_CPU *cpu, GBA_Memory *mem,
+                                   uint32_t inst) {
+  uint8_t opcode = ((inst >> 21) & 0xF);
+  uint8_t s = ((inst >> 20) & 0x1);
+  uint8_t rn = ((inst >> 16) & 0xF);
+  uint8_t rd = ((inst >> 12) & 0xF);
+  uint32_t rm = cpu->regs[inst & 0xF];
+
+  uint32_t shifter_operand;
+  int8_t shifter_carry_out = -1; // -1 means unset
+
+  // Checks if immediate pg 446 of arm arm
+  if (((inst >> 25) & 0x1) == 1) {
+    uint8_t rotate_imm_times_2 = ((inst & 0xF00) >> 7);
+    uint8_t immed_8 = (inst & 0xFF);
+
+    if (rotate_imm_times_2 == 0) {
+      shifter_operand = immed_8;
+    } else {
+      shifter_operand = ((uint32_t)immed_8 >> rotate_imm_times_2) |
+                        ((uint32_t)immed_8 << (32 - rotate_imm_times_2));
+      shifter_carry_out = (shifter_operand >> 31);
+    }
+  } else if ((inst & 0b00000000000000000000111111110000) == 0) {
+    // Checks if register pg 448 of arm arm
+    shifter_operand = rm;
+  } else if ((inst & 0b00000000000000000000111111110000) == 0b000001100000) {
+    // Checks if rotate right with extend pg 457 of arm arm
+    // 31 - 29 cause the carry flag is already shifted by 29
+    shifter_operand = (((cpu->CPSR & CARRY_FLAG) << (31 - 29)) | (rm >> 1));
+    shifter_carry_out = (rm & 1);
+  } else {
+    uint8_t shift_reg = cpu->regs[(inst >> 8) & 0xF] & 0xFF;
+    uint8_t shift_imm = ((inst >> 7) & 0x1F);
+    uint8_t inst_type = ((inst >> 5) & 0x3);
+    uint8_t is_reg = 0;
+
+    // Checks if shift is register
+    if (((inst >> 4) & 0x1) == 1) {
+      is_reg = 1;
+    }
+
+    switch (inst_type) {
+    case 3:
+      // Rotate
+      if (is_reg == 1) {
+        if (shift_reg == 0) {
+          shifter_operand = rm;
+        } else if ((shift_reg & 0xF) == 0) {
+          shifter_operand = rm;
+          shifter_carry_out = (rm >> 31);
+        } else {
+          shifter_operand =
+              (rm >> (shift_reg & 0xF)) | (rm << (32 - (shift_reg & 0xF)));
+          shifter_carry_out = ((rm >> ((shift_reg & 0xF) - 1)) & 1);
+        }
+      } else {
+        // The shift_imm == 0 is handled by RRX
+        shifter_operand = (rm >> shift_imm) | (rm << (32 - shift_imm));
+        shifter_carry_out = ((rm >> (shift_imm - 1)) & 1);
+      }
+      break;
+    case 2:
+      // Arithmatic
+      if (is_reg == 1) {
+        if (shift_reg == 0) {
+          shifter_operand = rm;
+        } else if (shift_reg < 32) {
+          shifter_operand = (int32_t)rm >> shift_reg;
+          shifter_carry_out = ((rm >> (shift_reg - 1)) & 1);
+        } else {
+          if ((rm >> 31) == 0) {
+            shifter_operand = 0;
+            shifter_carry_out = 0;
+          } else {
+            shifter_operand = 0xFFFFFFFF;
+            shifter_carry_out = 1;
+          }
+        }
+      } else {
+        if (shift_imm == 0) {
+          if ((rm >> 31) == 0) {
+            shifter_operand = 0;
+            shifter_carry_out = 0;
+          } else {
+            shifter_operand = 0xFFFFFFFF;
+            shifter_carry_out = 1;
+          }
+        } else {
+          shifter_operand = (int32_t)rm >> shift_imm;
+          shifter_carry_out = ((rm >> (shift_imm - 1)) & 1);
+        }
+      }
+      break;
+    case 1:
+      // Right shift
+      if (is_reg == 1) {
+        if (shift_reg == 0) {
+          shifter_operand = rm;
+        } else if (shift_reg < 32) {
+          shifter_operand = rm >> shift_reg;
+          shifter_carry_out = ((rm >> (shift_reg - 1)) & 1);
+        } else if (shift_reg == 32) {
+          shifter_operand = 0;
+          shifter_carry_out = (rm >> 31);
+        } else {
+          shifter_operand = 0;
+          shifter_carry_out = 0;
+        }
+      } else {
+        if (shift_imm == 0) {
+          shifter_operand = 0;
+          shifter_carry_out = (rm >> 31);
+        } else {
+          shifter_operand = rm >> shift_imm;
+          shifter_carry_out = ((rm >> (shift_imm - 1)) & 1);
+        }
+      }
+      break;
+    case 0:
+      // Left shift
+      if (is_reg == 1) {
+        if (shift_reg == 0) {
+          shifter_operand = rm;
+        } else if (shift_reg < 32) {
+          shifter_operand = rm << shift_reg;
+          shifter_carry_out = ((rm >> (32 - shift_reg)) & 1);
+        } else if (shift_reg == 32) {
+          shifter_operand = 0;
+          shifter_carry_out = (rm & 1);
+        } else {
+          shifter_operand = 0;
+          shifter_carry_out = 0;
+        }
+      } else {
+        if (shift_imm == 0) {
+          shifter_operand = rm;
+        } else {
+          shifter_operand = rm << shift_imm;
+          shifter_carry_out = ((rm >> (32 - shift_imm)) & 1);
+        }
+      }
+      break;
+    }
+  }
+}
+
 void run_cpu(GBA_CPU *cpu, GBA_Memory *mem) {
   if (cpu->CPSR & CPSR_T_BIT) { // Check the 5th bit for arm/thumb mode
     // Thumb
-    uint16_t opcode = readmem16(mem, cpu->regs[15]);
+    uint16_t inst = readmem16(mem, cpu->regs[15]);
     cpu->regs[15] += 2;
-    switch (decode_thumb(opcode)) {}
+    switch (decode_thumb(inst)) {}
   } else {
     // Arm
-    uint32_t opcode = readmem_32(mem, cpu->regs[15]);
+    uint32_t inst = readmem_32(mem, cpu->regs[15]);
     cpu->regs[15] += 4;
 
-    if (check_condition_code(cpu->CPSR, ((opcode & 0xF0000000) >> 28)))
+    if (check_condition_code(cpu->CPSR, ((inst & 0xF0000000) >> 28)))
       return;
 
-    switch (decode_arm(opcode)) {}
+    switch (decode_arm(inst)) {
+    case DataProcessing:
+      decode_data_processing(cpu, mem, inst);
+      break;
+    }
   }
 }
