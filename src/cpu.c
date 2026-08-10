@@ -523,6 +523,262 @@ static void decode_data_processing(GBA_CPU *cpu, GBA_Memory *mem,
   }
 }
 
+inline static uint8_t carry_from(uint32_t x, uint32_t y, uint32_t z) {
+  if ((uint64_t)x + (uint64_t)y + (uint64_t)z > UINT32_MAX)
+    return 1;
+  return 0;
+}
+
+inline static uint8_t borrow_from(int32_t x, int32_t y, int32_t z) {
+  if ((int64_t)x - (int64_t)y - (int64_t)z < 0)
+    return 1;
+  return 0;
+}
+
+inline static uint8_t overflow_from(int32_t x, int32_t y, int32_t result,
+                                    uint8_t is_sub) {
+  uint8_t x_sign = ((x >> 31) & 0x1);
+  uint8_t y_sign = ((y >> 31) & 0x1);
+  uint8_t result_sign = ((result >> 31) & 0x1);
+  if (is_sub == 0) {
+    if (x_sign == y_sign && result_sign != x_sign)
+      return 1;
+  } else {
+    if (x_sign != y_sign && result_sign != x_sign)
+      return 1;
+  }
+  return 0;
+}
+
+static void execute_data_processing(GBA_CPU *cpu, GBA_Memory *mem,
+                                    uint32_t shifter_operand,
+                                    int8_t shifter_carry_out, uint32_t rm,
+                                    uint8_t rd, uint8_t rn, uint8_t s,
+                                    uint8_t opcode) {
+  uint32_t temp;
+  uint8_t n_flag = !!(cpu->CPSR & SIGN_FLAG);
+  uint8_t z_flag = !!(cpu->CPSR & ZERO_FLAG);
+  uint8_t c_flag = !!(cpu->CPSR & CARRY_FLAG);
+  uint8_t v_flag = !!(cpu->CPSR & OVERFLOW_FLAG);
+  switch (opcode) {
+  case 0b0101:
+    // ADC
+    cpu->regs[rd] = cpu->regs[rn] + shifter_operand + c_flag;
+    if (s == 1) {
+      if (rd == 0xF) {
+        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
+          cpu->CPSR = cpu->SPSR_abt;
+      } else {
+        n_flag = cpu->regs[rd] >> 31;
+        z_flag = !cpu->regs[rd];
+        c_flag = carry_from(cpu->regs[rn], shifter_operand, c_flag);
+        v_flag =
+            overflow_from(cpu->regs[rn], shifter_operand, cpu->regs[rd], 0);
+      }
+    }
+    break;
+  case 0b0100:
+    // ADD
+    cpu->regs[rd] = cpu->regs[rn] + shifter_operand;
+    if (s == 1) {
+      if (rd == 0xF) {
+        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
+          cpu->CPSR = cpu->SPSR_abt;
+      } else {
+        n_flag = cpu->regs[rd] >> 31;
+        z_flag = !cpu->regs[rd];
+        c_flag = carry_from(cpu->regs[rn], shifter_operand, 0);
+        v_flag =
+            overflow_from(cpu->regs[rn], shifter_operand, cpu->regs[rd], 0);
+      }
+    }
+    break;
+  case 0b0000:
+    // AND
+    cpu->regs[rd] = cpu->regs[rn] & shifter_operand;
+    if (s == 1) {
+      if (rd == 0xF) {
+        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
+          cpu->CPSR = cpu->SPSR_abt;
+      } else {
+        n_flag = cpu->regs[rd] >> 31;
+        z_flag = !cpu->regs[rd];
+        c_flag = shifter_carry_out;
+      }
+    }
+    break;
+  case 0b1110:
+    // BIC
+    cpu->regs[rd] = cpu->regs[rn] & ~shifter_operand;
+    if (s == 1) {
+      if (rd == 0xF) {
+        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
+          cpu->CPSR = cpu->SPSR_abt;
+      } else {
+        n_flag = cpu->regs[rd] >> 31;
+        z_flag = !cpu->regs[rd];
+        c_flag = shifter_carry_out;
+      }
+    }
+    break;
+  case 0b1011:
+    // CMN
+    // Doesn't need to check S for updating flags
+    temp = cpu->regs[rn] + shifter_operand;
+    n_flag = temp >> 31;
+    z_flag = !temp;
+    c_flag = carry_from(cpu->regs[rn], shifter_operand, 0);
+    v_flag = overflow_from(cpu->regs[rn], shifter_operand, temp, 0);
+    break;
+  case 0b1010:
+    // CMP
+    // Doesn't need to check S for updating flags
+    temp = cpu->regs[rn] - shifter_operand;
+    n_flag = temp >> 31;
+    z_flag = !temp;
+    c_flag = !borrow_from(cpu->regs[rn], shifter_operand, 0);
+    v_flag = overflow_from(cpu->regs[rn], shifter_operand, temp, 1);
+    break;
+  case 0b0001:
+    // EOR
+    cpu->regs[rd] = cpu->regs[rn] ^ shifter_operand;
+    if (s == 1) {
+      if (rd == 0xF) {
+        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
+          cpu->CPSR = cpu->SPSR_abt;
+      } else {
+        n_flag = cpu->regs[rd] >> 31;
+        z_flag = !cpu->regs[rd];
+        c_flag = shifter_carry_out;
+      }
+    }
+    break;
+  case 0b1101:
+    // MOV
+    cpu->regs[rd] = shifter_operand;
+    if (s == 1) {
+      if (rd == 0xF) {
+        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
+          cpu->CPSR = cpu->SPSR_abt;
+      } else {
+        n_flag = cpu->regs[rd] >> 31;
+        z_flag = !cpu->regs[rd];
+        c_flag = shifter_carry_out;
+      }
+    }
+    break;
+  case 0b1111:
+    // MVN
+    cpu->regs[rd] = ~shifter_operand;
+    if (s == 1) {
+      if (rd == 0xF) {
+        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
+          cpu->CPSR = cpu->SPSR_abt;
+      } else {
+        n_flag = cpu->regs[rd] >> 31;
+        z_flag = !cpu->regs[rd];
+        c_flag = shifter_carry_out;
+      }
+    }
+    break;
+  case 0b1100:
+    // ORR
+    cpu->regs[rd] = cpu->regs[rn] | shifter_operand;
+    if (s == 1) {
+      if (rd == 0xF) {
+        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
+          cpu->CPSR = cpu->SPSR_abt;
+      } else {
+        n_flag = cpu->regs[rd] >> 31;
+        z_flag = !cpu->regs[rd];
+        c_flag = shifter_carry_out;
+      }
+    }
+    break;
+  case 0b0011:
+    // RSB
+    cpu->regs[rd] = shifter_operand - cpu->regs[rn];
+    if (s == 1) {
+      if (rd == 0xF) {
+        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
+          cpu->CPSR = cpu->SPSR_abt;
+      } else {
+        n_flag = cpu->regs[rd] >> 31;
+        z_flag = !cpu->regs[rd];
+        c_flag = !borrow_from(shifter_operand, cpu->regs[rn], 0);
+        v_flag =
+            overflow_from(shifter_operand, cpu->regs[rn], cpu->regs[rd], 1);
+      }
+    }
+    break;
+  case 0b0111:
+    // RSC
+    cpu->regs[rd] = shifter_operand - cpu->regs[rn] - !c_flag;
+    if (s == 1) {
+      if (rd == 0xF) {
+        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
+          cpu->CPSR = cpu->SPSR_abt;
+      } else {
+        n_flag = cpu->regs[rd] >> 31;
+        z_flag = !cpu->regs[rd];
+        c_flag = !borrow_from(shifter_operand, cpu->regs[rn], !c_flag);
+        v_flag =
+            overflow_from(shifter_operand, cpu->regs[rn], cpu->regs[rd], 1);
+      }
+    }
+    break;
+  case 0b0110:
+    // SBC
+    cpu->regs[rd] = cpu->regs[rn] - shifter_operand - !c_flag;
+    if (s == 1) {
+      if (rd == 0xF) {
+        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
+          cpu->CPSR = cpu->SPSR_abt;
+      } else {
+        n_flag = cpu->regs[rd] >> 31;
+        z_flag = !cpu->regs[rd];
+        c_flag = !borrow_from(cpu->regs[rn], shifter_operand, !c_flag);
+        v_flag =
+            overflow_from(cpu->regs[rn], shifter_operand, cpu->regs[rd], 1);
+      }
+    }
+    break;
+  case 0b0010:
+    // SUB
+    cpu->regs[rd] = cpu->regs[rn] - shifter_operand;
+    if (s == 1) {
+      if (rd == 0xF) {
+        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
+          cpu->CPSR = cpu->SPSR_abt;
+      } else {
+        n_flag = cpu->regs[rd] >> 31;
+        z_flag = !cpu->regs[rd];
+        c_flag = !borrow_from(cpu->regs[rn], shifter_operand, 0);
+        v_flag =
+            overflow_from(cpu->regs[rn], shifter_operand, cpu->regs[rd], 1);
+      }
+    }
+    break;
+  case 0b1001:
+    // TEQ
+    temp = cpu->regs[rn] ^ shifter_operand;
+    n_flag = temp >> 31;
+    z_flag = !temp;
+    c_flag = shifter_carry_out;
+    break;
+  case 0b1000:
+    // TST
+    temp = cpu->regs[rn] & shifter_operand;
+    n_flag = temp >> 31;
+    z_flag = !temp;
+    c_flag = shifter_carry_out;
+    break;
+  }
+
+  cpu->CPSR = (cpu->CPSR & 0x0FFFFFFF) | (v_flag << 28) | (c_flag << 29) |
+              (z_flag << 30) | (n_flag << 31);
+}
+
 void run_cpu(GBA_CPU *cpu, GBA_Memory *mem) {
   if (cpu->CPSR & CPSR_T_BIT) { // Check the 5th bit for arm/thumb mode
     // Thumb
