@@ -1,9 +1,9 @@
 #define SDL_MAIN_USE_CALLBACKS 1
-#include "audio.h"
-#include "cpu.h"
-#include "display.h"
+#include "audio/audio.h"
+#include "cpu/cpu.h"
+#include "display/display.h"
 #include "gba.h"
-#include "input.h"
+#include "input/input.h"
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <stdint.h>

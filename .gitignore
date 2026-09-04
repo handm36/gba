@@ -2,3 +2,4 @@ build/
 roms/
 gba
 .gdb_history
+compile_commands.json

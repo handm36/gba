@@ -2,6 +2,7 @@
 #include "gba.h"
 #include <SDL3/SDL.h>
 #include <stdint.h>
+#include <stdio.h>
 
 static SDL_Window *window = NULL;
 static SDL_Renderer *renderer = NULL;
