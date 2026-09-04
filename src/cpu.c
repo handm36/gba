@@ -550,6 +550,17 @@ inline static uint8_t overflow_from(int32_t x, int32_t y, int32_t result,
   return 0;
 }
 
+// returns true(1) if the current processor mode is not User mode or System
+// mode, else false(0)
+inline static int current_mode_has_SPSR(GBA_CPU *cpu) {
+  uint8_t mode_bits = cpu->CPSR & 0x1F; // take the last 5 bits
+  if (mode_bits == 0x10 || mode_bits == 0x1F) {
+    return 0;
+  }
+
+  return 1;
+}
+
 static void execute_data_processing(GBA_CPU *cpu, GBA_Memory *mem,
                                     uint32_t shifter_operand,
                                     int8_t shifter_carry_out, uint32_t rm,
@@ -566,8 +577,8 @@ static void execute_data_processing(GBA_CPU *cpu, GBA_Memory *mem,
     cpu->regs[rd] = cpu->regs[rn] + shifter_operand + c_flag;
     if (s == 1) {
       if (rd == 0xF) {
-        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
-          cpu->CPSR = cpu->SPSR_abt;
+        if (current_mode_has_SPSR(cpu))
+          cpu->CPSR = cpu->SPSR_abt; // still unimplemented
       } else {
         n_flag = cpu->regs[rd] >> 31;
         z_flag = !cpu->regs[rd];
@@ -582,8 +593,8 @@ static void execute_data_processing(GBA_CPU *cpu, GBA_Memory *mem,
     cpu->regs[rd] = cpu->regs[rn] + shifter_operand;
     if (s == 1) {
       if (rd == 0xF) {
-        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
-          cpu->CPSR = cpu->SPSR_abt;
+        if (current_mode_has_SPSR(cpu))
+          cpu->CPSR = cpu->SPSR_abt; // still unimplemented
       } else {
         n_flag = cpu->regs[rd] >> 31;
         z_flag = !cpu->regs[rd];
@@ -598,8 +609,8 @@ static void execute_data_processing(GBA_CPU *cpu, GBA_Memory *mem,
     cpu->regs[rd] = cpu->regs[rn] & shifter_operand;
     if (s == 1) {
       if (rd == 0xF) {
-        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
-          cpu->CPSR = cpu->SPSR_abt;
+        if (current_mode_has_SPSR(cpu))
+          cpu->CPSR = cpu->SPSR_abt; // still unimplemented
       } else {
         n_flag = cpu->regs[rd] >> 31;
         z_flag = !cpu->regs[rd];
@@ -612,8 +623,8 @@ static void execute_data_processing(GBA_CPU *cpu, GBA_Memory *mem,
     cpu->regs[rd] = cpu->regs[rn] & ~shifter_operand;
     if (s == 1) {
       if (rd == 0xF) {
-        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
-          cpu->CPSR = cpu->SPSR_abt;
+        if (current_mode_has_SPSR(cpu))
+          cpu->CPSR = cpu->SPSR_abt; // still unimplemented
       } else {
         n_flag = cpu->regs[rd] >> 31;
         z_flag = !cpu->regs[rd];
@@ -644,8 +655,8 @@ static void execute_data_processing(GBA_CPU *cpu, GBA_Memory *mem,
     cpu->regs[rd] = cpu->regs[rn] ^ shifter_operand;
     if (s == 1) {
       if (rd == 0xF) {
-        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
-          cpu->CPSR = cpu->SPSR_abt;
+        if (current_mode_has_SPSR(cpu))
+          cpu->CPSR = cpu->SPSR_abt; // still unimplemented
       } else {
         n_flag = cpu->regs[rd] >> 31;
         z_flag = !cpu->regs[rd];
@@ -658,8 +669,8 @@ static void execute_data_processing(GBA_CPU *cpu, GBA_Memory *mem,
     cpu->regs[rd] = shifter_operand;
     if (s == 1) {
       if (rd == 0xF) {
-        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
-          cpu->CPSR = cpu->SPSR_abt;
+        if (current_mode_has_SPSR(cpu))
+          cpu->CPSR = cpu->SPSR_abt; // still unimplemented
       } else {
         n_flag = cpu->regs[rd] >> 31;
         z_flag = !cpu->regs[rd];
@@ -672,8 +683,8 @@ static void execute_data_processing(GBA_CPU *cpu, GBA_Memory *mem,
     cpu->regs[rd] = ~shifter_operand;
     if (s == 1) {
       if (rd == 0xF) {
-        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
-          cpu->CPSR = cpu->SPSR_abt;
+        if (current_mode_has_SPSR(cpu))
+          cpu->CPSR = cpu->SPSR_abt; // still unimplemented
       } else {
         n_flag = cpu->regs[rd] >> 31;
         z_flag = !cpu->regs[rd];
@@ -686,8 +697,8 @@ static void execute_data_processing(GBA_CPU *cpu, GBA_Memory *mem,
     cpu->regs[rd] = cpu->regs[rn] | shifter_operand;
     if (s == 1) {
       if (rd == 0xF) {
-        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
-          cpu->CPSR = cpu->SPSR_abt;
+        if (current_mode_has_SPSR(cpu))
+          cpu->CPSR = cpu->SPSR_abt; // still unimplemented
       } else {
         n_flag = cpu->regs[rd] >> 31;
         z_flag = !cpu->regs[rd];
@@ -700,8 +711,8 @@ static void execute_data_processing(GBA_CPU *cpu, GBA_Memory *mem,
     cpu->regs[rd] = shifter_operand - cpu->regs[rn];
     if (s == 1) {
       if (rd == 0xF) {
-        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
-          cpu->CPSR = cpu->SPSR_abt;
+        if (current_mode_has_SPSR(cpu))
+          cpu->CPSR = cpu->SPSR_abt; // still unimplemented
       } else {
         n_flag = cpu->regs[rd] >> 31;
         z_flag = !cpu->regs[rd];
@@ -716,8 +727,8 @@ static void execute_data_processing(GBA_CPU *cpu, GBA_Memory *mem,
     cpu->regs[rd] = shifter_operand - cpu->regs[rn] - !c_flag;
     if (s == 1) {
       if (rd == 0xF) {
-        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
-          cpu->CPSR = cpu->SPSR_abt;
+        if (current_mode_has_SPSR(cpu))
+          cpu->CPSR = cpu->SPSR_abt; // still unimplemented
       } else {
         n_flag = cpu->regs[rd] >> 31;
         z_flag = !cpu->regs[rd];
@@ -732,8 +743,8 @@ static void execute_data_processing(GBA_CPU *cpu, GBA_Memory *mem,
     cpu->regs[rd] = cpu->regs[rn] - shifter_operand - !c_flag;
     if (s == 1) {
       if (rd == 0xF) {
-        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
-          cpu->CPSR = cpu->SPSR_abt;
+        if (current_mode_has_SPSR(cpu))
+          cpu->CPSR = cpu->SPSR_abt; // still unimplemented
       } else {
         n_flag = cpu->regs[rd] >> 31;
         z_flag = !cpu->regs[rd];
@@ -748,8 +759,8 @@ static void execute_data_processing(GBA_CPU *cpu, GBA_Memory *mem,
     cpu->regs[rd] = cpu->regs[rn] - shifter_operand;
     if (s == 1) {
       if (rd == 0xF) {
-        if (cpu->SPSR_abt == 0xF0F0F0F0) // yea its unimplemented now
-          cpu->CPSR = cpu->SPSR_abt;
+        if (current_mode_has_SPSR(cpu))
+          cpu->CPSR = cpu->SPSR_abt; // still unimplemented
       } else {
         n_flag = cpu->regs[rd] >> 31;
         z_flag = !cpu->regs[rd];
