@@ -456,17 +456,21 @@ static void decode_execute_data_processing(GBA_CPU *cpu, uint32_t inst) {
 }
 
 static void decode_execute_multiply(GBA_CPU *cpu, uint32_t inst) {
+  uint64_t temp;
+
   uint8_t opcode = ((inst >> 21) & 0x7F);
   uint8_t s = ((inst >> 20) & 0x1);
   uint8_t rd = ((inst >> 16) & 0xF);
-  uint8_t rn = cpu->regs[(inst >> 12) & 0xF];
-  uint8_t rs = cpu->regs[(inst >> 8) & 0xF];
+  uint8_t rdlo = ((inst >> 12) & 0xF);
+  uint32_t rn = cpu->regs[(inst >> 12) & 0xF];
+  uint32_t rs = cpu->regs[(inst >> 8) & 0xF];
   uint32_t rm = cpu->regs[inst & 0xF];
 
   uint8_t n_flag = !!(cpu->CPSR & SIGN_FLAG);
   uint8_t z_flag = !!(cpu->CPSR & ZERO_FLAG);
 
   switch (opcode) {
+  // MUL
   case 0b0000000:
     cpu->regs[rd] = (rm * rs);
     if (s == 1) {
@@ -475,11 +479,62 @@ static void decode_execute_multiply(GBA_CPU *cpu, uint32_t inst) {
     }
 
     break;
+  // MLA
   case 0b0000001:
     cpu->regs[rd] = (rm * rs + rn);
     if (s == 1) {
       n_flag = cpu->regs[rd] >> 31;
       z_flag = !cpu->regs[rd];
+    }
+
+    break;
+  // UMULL
+  case 0b0000100:
+    temp = ((uint64_t)rm * (uint64_t)rs);
+    cpu->regs[rdlo] = temp & UINT32_MAX;
+    cpu->regs[rd] = temp >> 32;
+
+    if (s == 1) {
+      n_flag = cpu->regs[rd] >> 31;
+      z_flag = (!cpu->regs[rd] && !cpu->regs[rdlo]);
+    }
+
+    break;
+  // UMLAL
+  case 0b0000101:
+    temp = ((uint64_t)rm * (uint64_t)rs);
+    temp += ((uint64_t)cpu->regs[rd] << 32) | cpu->regs[rdlo];
+    cpu->regs[rd] = (temp >> 32);
+    cpu->regs[rdlo] = temp & UINT32_MAX;
+
+    if (s == 1) {
+      n_flag = cpu->regs[rd] >> 31;
+      z_flag = (!cpu->regs[rd] && !cpu->regs[rdlo]);
+    }
+
+    break;
+  // SMULL
+  case 0b0000110:
+    temp = ((int64_t)(int32_t)rm * (int64_t)(int32_t)rs);
+    cpu->regs[rdlo] = temp & UINT32_MAX;
+    cpu->regs[rd] = temp >> 32;
+
+    if (s == 1) {
+      n_flag = cpu->regs[rd] >> 31;
+      z_flag = (!cpu->regs[rd] && !cpu->regs[rdlo]);
+    }
+
+    break;
+  // SMLAL
+  case 0b0000111:
+    temp = ((int64_t)(int32_t)rm * (int64_t)(int32_t)rs);
+    temp += ((int64_t)cpu->regs[rd] << 32) | cpu->regs[rdlo];
+    cpu->regs[rd] = (temp >> 32);
+    cpu->regs[rdlo] = temp & UINT32_MAX;
+
+    if (s == 1) {
+      n_flag = cpu->regs[rd] >> 31;
+      z_flag = (!cpu->regs[rd] && !cpu->regs[rdlo]);
     }
 
     break;
