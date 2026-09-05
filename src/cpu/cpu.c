@@ -545,6 +545,17 @@ static void decode_execute_multiply(GBA_CPU *cpu, uint32_t inst) {
   cpu->CPSR = (cpu->CPSR & 0x3FFFFFFF) | (z_flag << 30) | (n_flag << 31);
 }
 
+static void decode_execute_branch_branch_link(GBA_CPU *cpu, uint32_t inst) {
+  uint8_t l = (inst >> 24) & 0x1;
+  int32_t signed_immed_24 = inst & 0xFFFFFF;
+
+  // B and BL
+  if (l == 1)
+    cpu->regs[14] = cpu->regs[15] + 4;
+
+  cpu->regs[15] += (signed_immed_24 << 8) >> 6;
+}
+
 void run_cpu(GBA_CPU *cpu, GBA_Memory *mem) {
   if (cpu->CPSR & CPSR_T_BIT) { // Check the 5th bit for arm/thumb mode
     // Thumb
@@ -565,6 +576,9 @@ void run_cpu(GBA_CPU *cpu, GBA_Memory *mem) {
       break;
     case Multiply:
       decode_execute_multiply(cpu, inst);
+      break;
+    case BranchAndBranchWithLink:
+      decode_execute_branch_branch_link(cpu, inst);
       break;
     }
   }
