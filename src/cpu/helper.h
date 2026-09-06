@@ -1,14 +1,24 @@
 #pragma once
 #include "gba.h"
 
-#define CPSR_T_BIT (1 << 5)
-#define CPSR_F_BIT (1 << 6)
-#define CPSR_I_BIT (1 << 7)
+// Location of each bit
+#define CPSR_T_LOC 5
+#define CPSR_F_LOC 6
+#define CPSR_I_LOC 7
 
-#define OVERFLOW_FLAG (1 << 28)
-#define CARRY_FLAG (1 << 29)
-#define ZERO_FLAG (1 << 30)
-#define SIGN_FLAG (1 << 31)
+#define CPSR_T_BIT (1 << CPSR_T_LOC)
+#define CPSR_F_BIT (1 << CPSR_F_LOC)
+#define CPSR_I_BIT (1 << CPSR_I_LOC)
+
+#define OVERFLOW_FLAG_LOC 28
+#define CARRY_FLAG_LOC 29
+#define ZERO_FLAG_LOC 30
+#define SIGN_FLAG_LOC 31
+
+#define OVERFLOW_FLAG (1 << OVERFLOW_FLAG_LOC) // V flag
+#define CARRY_FLAG (1 << CARRY_FLAG_LOC)       // C flag
+#define ZERO_FLAG (1 << ZERO_FLAG_LOC)         // Z flag
+#define SIGN_FLAG (1 << SIGN_FLAG_LOC)         // N flag
 
 typedef enum {
   BranchAndBranchExchange,

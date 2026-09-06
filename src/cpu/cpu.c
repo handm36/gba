@@ -302,8 +302,10 @@ static void execute_data_processing(GBA_CPU *cpu, uint32_t shifter_operand,
     break;
   }
 
-  cpu->CPSR = (cpu->CPSR & 0x0FFFFFFF) | (v_flag << 28) | (c_flag << 29) |
-              (z_flag << 30) | (n_flag << 31);
+  cpu->CPSR =
+      (cpu->CPSR & ~(OVERFLOW_FLAG | CARRY_FLAG | ZERO_FLAG | SIGN_FLAG)) |
+      (v_flag << OVERFLOW_FLAG_LOC) | (c_flag << CARRY_FLAG_LOC) |
+      (z_flag << ZERO_FLAG_LOC) | (n_flag << SIGN_FLAG_LOC);
 }
 
 static void decode_execute_data_processing(GBA_CPU *cpu, uint32_t inst) {
@@ -542,7 +544,8 @@ static void decode_execute_multiply(GBA_CPU *cpu, uint32_t inst) {
     break;
   }
 
-  cpu->CPSR = (cpu->CPSR & 0x3FFFFFFF) | (z_flag << 30) | (n_flag << 31);
+  cpu->CPSR = (cpu->CPSR & ~(ZERO_FLAG | SIGN_FLAG)) |
+              (z_flag << ZERO_FLAG_LOC) | (n_flag << SIGN_FLAG_LOC);
 }
 
 static void decode_execute_branch_branch_link(GBA_CPU *cpu, uint32_t inst) {
@@ -554,6 +557,14 @@ static void decode_execute_branch_branch_link(GBA_CPU *cpu, uint32_t inst) {
     cpu->regs[14] = cpu->regs[15] + 4;
 
   cpu->regs[15] += (signed_immed_24 << 8) >> 6;
+}
+
+static void decode_execute_branch_exchange(GBA_CPU *cpu, uint32_t inst) {
+  uint32_t rm = cpu->regs[inst & 0xF];
+
+  // BX
+  cpu->CPSR = (cpu->CPSR & ~CPSR_T_BIT) | ((rm & 0x1) << CPSR_T_LOC);
+  cpu->regs[15] = rm & 0xFFFFFFFE;
 }
 
 void run_cpu(GBA_CPU *cpu, GBA_Memory *mem) {
@@ -579,6 +590,9 @@ void run_cpu(GBA_CPU *cpu, GBA_Memory *mem) {
       break;
     case BranchAndBranchWithLink:
       decode_execute_branch_branch_link(cpu, inst);
+      break;
+    case BranchAndBranchExchange:
+      decode_execute_branch_exchange(cpu, inst);
       break;
     }
   }
