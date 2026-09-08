@@ -20,6 +20,12 @@
 #define ZERO_FLAG (1 << ZERO_FLAG_LOC)         // Z flag
 #define SIGN_FLAG (1 << SIGN_FLAG_LOC)         // N flag
 
+// Bit mask constants
+#define UNALLOCMASK 0x0FFFFF00
+#define USERMASK 0xF0000000
+#define PRIVMASK 0x0000000F
+#define STATEMASK 0x00000020
+
 typedef enum {
   BranchAndBranchExchange,
   BlockDataTransfer,

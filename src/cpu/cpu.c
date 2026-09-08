@@ -1,4 +1,5 @@
 #include "cpu.h"
+#include "gba.h"
 #include "helper.h"
 #include "mem.h"
 #include <stdint.h>
@@ -567,6 +568,77 @@ static void decode_execute_branch_exchange(GBA_CPU *cpu, uint32_t inst) {
   cpu->regs[15] = rm & 0xFFFFFFFE;
 }
 
+static void decode_execute_psr_transfer_MRS(GBA_CPU *cpu, uint32_t inst) {
+  uint8_t rd = ((inst >> 12) & 0xF);
+  uint8_t r = ((inst >> 22) & 0x1);
+
+  if (r == 1)
+    cpu->regs[rd] = get_current_spsr(cpu);
+  else
+    cpu->regs[rd] = cpu->CPSR;
+}
+
+static void decode_execute_psr_transfer_MSR(GBA_CPU *cpu, uint32_t inst) {
+  uint8_t field_mask = ((inst >> 16) & 0xF);
+  uint8_t r = ((inst >> 22) & 0x1);
+
+  // for register operand
+  uint32_t rm = cpu->regs[inst & 0xF];
+
+  // for immediate operand
+  uint8_t imm_8bit = inst & 0xFF;
+  uint8_t rotate_imm = (inst >> 8) & 0xF;
+
+  uint32_t operand;
+  uint32_t mask;
+  uint32_t temp;
+
+  const uint32_t byte_mask = (((field_mask & 0x1) << 31) & 0x000000FF) |
+                             ((((field_mask >> 1) & 0x1) << 31) & 0x0000FF00) |
+                             ((((field_mask >> 2) & 0x1) << 31) & 0x00FF0000) |
+                             ((((field_mask >> 3) & 0x1) << 31) & 0xFF000000);
+
+  if (((inst >> 25) & 0x1) == 1) {
+    operand =
+        (imm_8bit >> (rotate_imm * 2)) | (imm_8bit << (32 - (rotate_imm * 2)));
+  } else {
+    operand = rm;
+  }
+
+  if (r == 0) {
+    if (current_mode_has_SPSR(cpu) == 0) {
+      if ((operand & STATEMASK) == 0)
+        mask = byte_mask & (USERMASK | PRIVMASK);
+    } else {
+      mask = byte_mask & USERMASK;
+    }
+
+    cpu->CPSR = (cpu->CPSR & ~mask) | (operand & mask);
+  } else {
+    if (current_mode_has_SPSR(cpu)) {
+      mask = byte_mask & (USERMASK | PRIVMASK | STATEMASK);
+
+      // get current spsr to write to
+      temp = get_current_spsr(cpu);
+
+      if (temp == cpu->SPSR_fiq)
+        cpu->SPSR_fiq = (cpu->SPSR_fiq & ~mask) | (operand & mask);
+
+      if (temp == cpu->SPSR_svc)
+        cpu->SPSR_svc = (cpu->SPSR_svc & ~mask) | (operand & mask);
+
+      if (temp == cpu->SPSR_abt)
+        cpu->SPSR_abt = (cpu->SPSR_abt & ~mask) | (operand & mask);
+
+      if (temp == cpu->SPSR_irq)
+        cpu->SPSR_irq = (cpu->SPSR_irq & ~mask) | (operand & mask);
+
+      if (temp == cpu->SPSR_und)
+        cpu->SPSR_und = (cpu->SPSR_und & ~mask) | (operand & mask);
+    }
+  }
+}
+
 void run_cpu(GBA_CPU *cpu, GBA_Memory *mem) {
   if (cpu->CPSR & CPSR_T_BIT) { // Check the 5th bit for arm/thumb mode
     // Thumb
@@ -593,6 +665,12 @@ void run_cpu(GBA_CPU *cpu, GBA_Memory *mem) {
       break;
     case BranchAndBranchExchange:
       decode_execute_branch_exchange(cpu, inst);
+      break;
+    case PSRTransferMRS:
+      decode_execute_psr_transfer_MRS(cpu, inst);
+      break;
+    case PSRTransferMSR:
+      decode_execute_psr_transfer_MSR(cpu, inst);
       break;
     }
   }
