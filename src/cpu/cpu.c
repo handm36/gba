@@ -639,6 +639,181 @@ static void decode_execute_psr_transfer_MSR(GBA_CPU *cpu, uint32_t inst) {
   }
 }
 
+static void execute_single_data_transfer(GBA_CPU *cpu, GBA_Memory *mem,
+                                         uint32_t inst, uint8_t rd, uint8_t rn,
+                                         uint8_t rm, uint8_t i, uint8_t p,
+                                         uint8_t u, uint8_t b, uint8_t w,
+                                         uint8_t l, uint32_t address) {
+  uint32_t data;
+
+  if (l == 1) {
+    if (b == 1) {
+      // LDRB
+      cpu->regs[rd] = readmem8(mem, address);
+
+      if (w == 1 && p != 1) {
+        // LDRBT
+        cpu->regs[rn] = address;
+      }
+    } else {
+      // LDR
+      data = readmem32(mem, address);
+
+      if ((address & 0x3) != 0) {
+        data = (data >> ((address & 0x3) * 8)) |
+               (data << (32 - ((address & 0x3) * 8)));
+      }
+
+      if (rd == 15) {
+        cpu->regs[15] = data & 0xFFFFFFFC;
+      } else {
+        cpu->regs[rd] = data;
+      }
+    }
+  } else {
+    if (b == 1) {
+      // STRB
+      writemem8(mem, address, (cpu->regs[rd]) & 0xFF);
+    } else {
+      // STR
+      writemem32(mem, address, cpu->regs[rd]);
+    }
+  }
+}
+
+static void decode_execute_single_data_transfer(GBA_CPU *cpu, GBA_Memory *mem,
+                                                uint32_t inst) {
+  uint8_t rn = ((inst >> 16) & 0xF);
+  uint8_t rd = ((inst >> 12) & 0xF);
+  uint8_t rm = (inst & 0xF);
+
+  uint8_t i = (inst >> 25) & 0x1;
+  uint8_t p = (inst >> 24) & 0x1;
+  uint8_t u = (inst >> 23) & 0x1;
+  uint8_t b = (inst >> 22) & 0x1;
+  uint8_t w = (inst >> 21) & 0x1;
+  uint8_t l = (inst >> 20) & 0x1;
+
+  uint16_t addr_mode = inst & 0xFFF;
+  uint32_t address;
+  uint32_t index;
+
+  // immediate
+  uint16_t offset_12 = addr_mode;
+
+  // scaled reg
+  uint8_t shift_imm = (inst >> 7) & 0x1F;
+  uint8_t shift = (inst >> 5) & 0x3;
+
+  // immediate
+  if (i == 0) {
+    if (p == 1) {
+      // pre-indexed and offset
+      if (u == 1) {
+        address = cpu->regs[rn] + offset_12;
+      } else {
+        address = cpu->regs[rn] - offset_12;
+      }
+
+      // pre-indexed
+      if (w == 1)
+        cpu->regs[rn] = address;
+    } else {
+      // post-indexed
+      address = cpu->regs[rn];
+
+      if (u == 1) {
+        cpu->regs[rn] = cpu->regs[rn] + offset_12;
+      } else {
+        cpu->regs[rn] = cpu->regs[rn] - offset_12;
+      }
+    }
+  } else {
+    // register
+    if (shift == 0 && shift_imm == 0) {
+      // unscaled
+
+      if (p == 1) {
+        // pre-indexed and offset
+        if (u == 1) {
+          address = cpu->regs[rn] + cpu->regs[rm];
+        } else {
+          address = cpu->regs[rn] - cpu->regs[rm];
+        }
+
+      } else {
+        // post-indexed
+        address = cpu->regs[rn];
+
+        if (u == 1) {
+          cpu->regs[rn] = cpu->regs[rn] + cpu->regs[rm];
+        } else {
+          cpu->regs[rn] = cpu->regs[rn] - cpu->regs[rm];
+        }
+      }
+    } else {
+      // scaled
+      if (p != 1) {
+        address = cpu->regs[rn];
+      }
+
+      switch (shift) {
+      case 0b00:
+        index = cpu->regs[rm] << shift_imm;
+
+        break;
+      case 0b01:
+        if (shift_imm == 0)
+          index = 0;
+        else
+          index = cpu->regs[rm] >> shift_imm;
+
+        break;
+      case 0b10:
+        if (shift_imm == 0) {
+          if ((cpu->regs[rm] >> 31) == 1)
+            index = 0xFFFFFFFF;
+          else
+            index = 0;
+        } else {
+          index = (int32_t)cpu->regs[rm] >> shift_imm;
+        }
+
+        break;
+      case 0b11:
+        if (shift_imm == 0) {
+          index = ((cpu->CPSR & CARRY_FLAG) << (31 - CARRY_FLAG_LOC)) |
+                  (cpu->regs[rm] >> 1);
+        } else {
+          index = (cpu->regs[rm] >> shift_imm) |
+                  (cpu->regs[rm] << (32 - shift_imm));
+        }
+        break;
+      }
+      if (p == 1) {
+        if (u == 1) {
+          address = cpu->regs[rn] + index;
+        } else {
+          address = cpu->regs[rn] - index;
+        }
+      } else {
+        if (u == 1) {
+          cpu->regs[rn] = cpu->regs[rn] + index;
+        } else {
+          cpu->regs[rn] = cpu->regs[rn] - index;
+        }
+      }
+    }
+
+    // pre-indexed
+    if (w == 1 && p == 1)
+      cpu->regs[rn] = address;
+  }
+
+  execute_single_data_transfer(cpu, mem, inst, rd, rn, rm, i, p, u, b, w, l,
+                               address);
+}
+
 void run_cpu(GBA_CPU *cpu, GBA_Memory *mem) {
   if (cpu->CPSR & CPSR_T_BIT) { // Check the 5th bit for arm/thumb mode
     // Thumb
@@ -671,6 +846,9 @@ void run_cpu(GBA_CPU *cpu, GBA_Memory *mem) {
       break;
     case PSRTransferMSR:
       decode_execute_psr_transfer_MSR(cpu, inst);
+      break;
+    case SingleDataTransfer:
+      decode_execute_single_data_transfer(cpu, mem, inst);
       break;
     }
   }

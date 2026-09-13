@@ -60,3 +60,30 @@ uint32_t readmem32(GBA_Memory *mem, uint32_t addr) {
   memcpy(&val, result, 4);
   return val;
 }
+
+void *writemem8(GBA_Memory *mem, uint32_t addr, uint8_t data) {
+  uint8_t *result = resolve_addr(mem, addr, 1);
+  if (result == NULL)
+    return NULL;
+
+  memcpy(result, &data, 1);
+  return result;
+}
+
+void *writemem16(GBA_Memory *mem, uint32_t addr, uint16_t data) {
+  uint8_t *result = resolve_addr(mem, addr, 2);
+  if (result == NULL)
+    return NULL;
+
+  memcpy(result, &data, 2);
+  return result;
+}
+
+void *writemem32(GBA_Memory *mem, uint32_t addr, uint32_t data) {
+  uint8_t *result = resolve_addr(mem, addr, 4);
+  if (result == NULL)
+    return NULL;
+
+  memcpy(result, &data, 4);
+  return result;
+}
