@@ -1,5 +1,6 @@
 #pragma once
 #include "gba.h"
+#include <stdint.h>
 
 // Location of each bit
 #define CPSR_T_LOC 5
@@ -74,3 +75,4 @@ uint8_t borrow_from(int32_t x, int32_t y, int32_t z);
 uint8_t overflow_from(int32_t x, int32_t y, int32_t result, uint8_t is_sub);
 int current_mode_has_SPSR(GBA_CPU *cpu);
 uint32_t get_current_spsr(GBA_CPU *cpu);
+int number_of_set_bits_in(uint32_t num);

@@ -302,3 +302,17 @@ uint32_t get_current_spsr(GBA_CPU *cpu) {
 
   return cpu->CPSR;
 }
+
+int number_of_set_bits_in(uint32_t num) {
+  int result = 0;
+  uint32_t mask = 1;
+
+  for (int i = 0; i < 32; i++) {
+    if ((num & mask) != 0) {
+      result += 1;
+    }
+    mask = mask << 1;
+  }
+
+  return result;
+}

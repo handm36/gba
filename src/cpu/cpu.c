@@ -814,6 +814,119 @@ static void decode_execute_single_data_transfer(GBA_CPU *cpu, GBA_Memory *mem,
                                address);
 }
 
+static void execute_block_data_transfer(GBA_CPU *cpu, GBA_Memory *mem,
+                                        uint32_t addr, uint32_t end_addr,
+                                        uint16_t register_list, uint8_t s,
+                                        uint8_t w, uint8_t l) {
+  if (l == 1) {
+    if ((s == 1) && (w == 0) && (((register_list >> 15) & 0x1) == 0)) {
+      // LDM (2)
+      for (int i = 0; i <= 14; i++) {
+        if (((register_list >> i) & 0x1) == 1) {
+          if (i == 13 || i == 14) {
+            cpu->regs_usr[i - 13] = readmem32(mem, addr);
+          } else {
+            cpu->regs[i] = readmem32(mem, addr);
+          }
+
+          addr += 4;
+        }
+      }
+    } else {
+      // LDM (1) and (3)
+      for (int i = 0; i <= 14; i++) {
+        if (((register_list >> i) & 0x1) == 1) {
+          cpu->regs[i] = readmem32(mem, addr);
+          addr += 4;
+        }
+      }
+
+      if (((register_list >> 15) & 0x1) == 1) {
+        if (s == 1) {
+          // LDM (3)
+          if (current_mode_has_SPSR(cpu)) {
+            cpu->CPSR = get_current_spsr(cpu);
+          }
+        }
+
+        cpu->regs[15] = readmem32(mem, addr) & 0xFFFFFFFC;
+        addr += 4;
+      }
+    }
+  } else {
+    // STM (1) and (2)
+    for (int i = 0; i <= 15; i++) {
+      if (((register_list >> i) & 0x1) == 1) {
+        if ((i == 13 || i == 14) && s == 1) {
+          // STM (2)
+          writemem32(mem, addr, cpu->regs_usr[i - 13]);
+        } else {
+          // STM (1)
+          writemem32(mem, addr, cpu->regs[i]);
+        }
+        addr += 4;
+      }
+    }
+  }
+}
+
+static void decode_execute_block_data_transfer(GBA_CPU *cpu, GBA_Memory *mem,
+                                               uint32_t inst) {
+  uint8_t rn = ((inst >> 16) & 0xF);
+
+  uint8_t p = (inst >> 24) & 0x1;
+  uint8_t u = (inst >> 23) & 0x1;
+  uint8_t s = (inst >> 22) & 0x1;
+  uint8_t w = (inst >> 21) & 0x1;
+  uint8_t l = (inst >> 20) & 0x1;
+
+  uint16_t register_list = inst & 0xFFFF;
+  int num_of_bits = number_of_set_bits_in(register_list) * 4;
+
+  uint32_t start_addr;
+  uint32_t end_addr;
+
+  if (u == 1) {
+    if (p == 1) {
+      // Increment before
+      start_addr = cpu->regs[rn] + 4;
+      end_addr = cpu->regs[rn] + num_of_bits;
+
+      if (w == 1) {
+        cpu->regs[rn] += num_of_bits;
+      }
+    } else {
+      // Increment after
+      start_addr = cpu->regs[rn];
+      end_addr = cpu->regs[rn] + num_of_bits - 4;
+
+      if (w == 1) {
+        cpu->regs[rn] += num_of_bits;
+      }
+    }
+  } else {
+    if (p == 1) {
+      // Decrement before
+      start_addr = cpu->regs[rn] - num_of_bits;
+      end_addr = cpu->regs[rn] - 4;
+
+      if (w == 1) {
+        cpu->regs[rn] -= num_of_bits;
+      }
+    } else {
+      // Decrement after
+      start_addr = cpu->regs[rn] - num_of_bits + 4;
+      end_addr = cpu->regs[rn];
+
+      if (w == 1) {
+        cpu->regs[rn] -= num_of_bits;
+      }
+    }
+  }
+  execute_block_data_transfer(cpu, mem, start_addr, end_addr, register_list, s,
+                              w, l);
+}
+
 void run_cpu(GBA_CPU *cpu, GBA_Memory *mem) {
   if (cpu->CPSR & CPSR_T_BIT) { // Check the 5th bit for arm/thumb mode
     // Thumb
@@ -849,6 +962,9 @@ void run_cpu(GBA_CPU *cpu, GBA_Memory *mem) {
       break;
     case SingleDataTransfer:
       decode_execute_single_data_transfer(cpu, mem, inst);
+      break;
+    case BlockDataTransfer:
+      decode_execute_block_data_transfer(cpu, mem, inst);
       break;
     }
   }
