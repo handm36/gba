@@ -316,3 +316,11 @@ int number_of_set_bits_in(uint32_t num) {
 
   return result;
 }
+
+uint32_t rotate_right(uint32_t data, uint32_t rotate_by) {
+  if (rotate_by == 0) {
+    return data;
+  }
+
+  return (data >> (rotate_by)) | (data << (32 - (rotate_by)));
+}
