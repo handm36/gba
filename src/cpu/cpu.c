@@ -947,6 +947,131 @@ static void decode_execute_single_data_swap(GBA_CPU *cpu, GBA_Memory *mem,
   }
 }
 
+static void decode_execute_software_interrupt(GBA_CPU *cpu) {
+  // SWI
+  handle_CPSR_mode_switch(cpu, 0b10011);
+  cpu->CPSR = cpu->CPSR & ~0b1010100000; // 0 are the bits I need to replace
+  cpu->CPSR = cpu->CPSR | 0b0010000000;
+
+  cpu->regs[14] = cpu->regs[15];
+
+  cpu->regs[15] = 0x8;
+}
+
+static void execute_halfword_data_transfer(GBA_CPU *cpu, GBA_Memory *mem,
+                                           uint8_t rd, uint8_t l, uint8_t s,
+                                           uint8_t h, uint32_t addr) {
+  uint16_t data;
+
+  if (l == 1) {
+    if (h == 0) {
+      if (s == 1)
+        // LDRSB
+        cpu->regs[rd] = (int32_t)(int8_t)readmem8(mem, addr);
+    } else {
+      // LDRSH and LDRH
+      if ((addr & 0x1) == 0) {
+        data = readmem16(mem, addr);
+      } else {
+        data = 0;
+      }
+
+      if (s == 1)
+        // LDRSH
+        cpu->regs[rd] = (int32_t)(int16_t)data;
+      else
+        // LDRH
+        cpu->regs[rd] = (uint32_t)data;
+    }
+  } else if (s == 0 && h == 1) {
+    // STRH
+    if ((addr & 0x1) == 0) {
+      writemem16(mem, addr, (cpu->regs[rd] & 0xFFFF));
+    }
+  }
+}
+
+static void decode_execute_halfword_data_transfer_imm(GBA_CPU *cpu,
+                                                      GBA_Memory *mem,
+                                                      uint32_t inst) {
+  uint8_t rn = ((inst >> 16) & 0xF);
+  uint8_t rd = ((inst >> 12) & 0xF);
+  uint8_t immedH = ((inst >> 8) & 0xF);
+  uint8_t immedL = (inst & 0xF);
+
+  uint8_t p = (inst >> 24) & 0x1;
+  uint8_t u = (inst >> 23) & 0x1;
+  uint8_t w = (inst >> 21) & 0x1;
+  uint8_t l = (inst >> 20) & 0x1;
+  uint8_t s = (inst >> 6) & 0x1;
+  uint8_t h = (inst >> 5) & 0x1;
+
+  uint32_t addr;
+  uint8_t offset_8;
+
+  if (p == 1) {
+    // Imm offset and pre-indexed
+    offset_8 = (immedH << 4) | immedL;
+    if (u == 1)
+      addr = cpu->regs[rn] + offset_8;
+    else
+      addr = cpu->regs[rn] - offset_8;
+
+    // pre-indexed
+    if (w == 1)
+      cpu->regs[rn] = addr;
+  } else {
+    // post-indexed
+    addr = cpu->regs[rn];
+    offset_8 = (immedH << 4) | immedL;
+    if (u == 1)
+      cpu->regs[rn] += offset_8;
+    else
+      cpu->regs[rn] -= offset_8;
+  }
+
+  execute_halfword_data_transfer(cpu, mem, rd, l, s, h, addr);
+}
+
+static void decode_execute_halfword_data_transfer_reg(GBA_CPU *cpu,
+                                                      GBA_Memory *mem,
+                                                      uint32_t inst) {
+  uint8_t rn = ((inst >> 16) & 0xF);
+  uint8_t rd = ((inst >> 12) & 0xF);
+  uint8_t rm = (inst & 0xF);
+
+  uint8_t p = (inst >> 24) & 0x1;
+  uint8_t u = (inst >> 23) & 0x1;
+  uint8_t w = (inst >> 21) & 0x1;
+  uint8_t l = (inst >> 20) & 0x1;
+  uint8_t s = (inst >> 6) & 0x1;
+  uint8_t h = (inst >> 5) & 0x1;
+
+  uint32_t addr;
+
+  if (p == 1) {
+    // Reg offset and pre-indexed
+    if (u == 1)
+      addr = cpu->regs[rn] + cpu->regs[rm];
+    else
+      addr = cpu->regs[rn] - cpu->regs[rm];
+
+    // pre-indexed
+    if (w == 1)
+      cpu->regs[rn] = addr;
+  } else {
+    // post-indexed
+    addr = cpu->regs[rn];
+
+    if (u == 1)
+      cpu->regs[rn] += cpu->regs[rm];
+    else
+      cpu->regs[rn] -= cpu->regs[rm];
+  }
+
+  execute_halfword_data_transfer(cpu, mem, rd, l, s, h, addr);
+}
+
 void run_cpu(GBA_CPU *cpu, GBA_Memory *mem) {
   if (cpu->CPSR & CPSR_T_BIT) { // Check the 5th bit for arm/thumb mode
     // Thumb
@@ -987,13 +1112,16 @@ void run_cpu(GBA_CPU *cpu, GBA_Memory *mem) {
       decode_execute_block_data_transfer(cpu, mem, inst);
       break;
     case SoftwareInterrupt:
+      decode_execute_software_interrupt(cpu);
       break;
     case SingleDataSwap:
       decode_execute_single_data_swap(cpu, mem, inst);
       break;
     case HalfwordDataTransferImmediate:
+      decode_execute_halfword_data_transfer_imm(cpu, mem, inst);
       break;
     case HalfwordDataTransferRegister:
+      decode_execute_halfword_data_transfer_reg(cpu, mem, inst);
       break;
     case Unimplemented:
     case Undefined:
