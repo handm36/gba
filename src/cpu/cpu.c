@@ -304,10 +304,7 @@ static void execute_data_processing(GBA_CPU *cpu, uint32_t shifter_operand,
     break;
   }
 
-  cpu->CPSR =
-      (cpu->CPSR & ~(OVERFLOW_FLAG | CARRY_FLAG | ZERO_FLAG | SIGN_FLAG)) |
-      (v_flag << OVERFLOW_FLAG_LOC) | (c_flag << CARRY_FLAG_LOC) |
-      (z_flag << ZERO_FLAG_LOC) | (n_flag << SIGN_FLAG_LOC);
+  set_cpsr(cpu, n_flag, z_flag, c_flag, v_flag);
 }
 
 static void decode_execute_data_processing(GBA_CPU *cpu, uint32_t inst) {
@@ -544,8 +541,8 @@ static void decode_execute_multiply(GBA_CPU *cpu, uint32_t inst) {
     break;
   }
 
-  cpu->CPSR = (cpu->CPSR & ~(ZERO_FLAG | SIGN_FLAG)) |
-              (z_flag << ZERO_FLAG_LOC) | (n_flag << SIGN_FLAG_LOC);
+  set_cpsr(cpu, n_flag, z_flag, !!(cpu->CPSR & CARRY_FLAG),
+           !!(cpu->CPSR & OVERFLOW_FLAG));
 }
 
 static void decode_execute_branch_branch_link(GBA_CPU *cpu, uint32_t inst) {
@@ -1072,12 +1069,185 @@ static void decode_execute_halfword_data_transfer_reg(GBA_CPU *cpu,
   execute_halfword_data_transfer(cpu, mem, rd, l, s, h, addr);
 }
 
+static void decode_execute_alu_operations(GBA_CPU *cpu, uint16_t inst) {
+  uint8_t rd = inst & 0x7;
+  uint8_t rm = (inst >> 3) & 0x7;
+
+  uint32_t temp;
+
+  uint8_t n_flag = !!(cpu->CPSR & SIGN_FLAG);
+  uint8_t z_flag = !!(cpu->CPSR & ZERO_FLAG);
+  uint8_t c_flag = !!(cpu->CPSR & CARRY_FLAG);
+  uint8_t v_flag = !!(cpu->CPSR & OVERFLOW_FLAG);
+
+  switch ((inst >> 6) & 0xF) {
+  case 0b0000:
+    // AND
+    cpu->regs[rd] = cpu->regs[rd] & cpu->regs[rm];
+    n_flag = cpu->regs[rd] >> 31;
+    z_flag = !cpu->regs[rd];
+    break;
+  case 0b0001:
+    // EOR
+    cpu->regs[rd] = cpu->regs[rd] ^ cpu->regs[rm];
+    n_flag = cpu->regs[rd] >> 31;
+    z_flag = !cpu->regs[rd];
+    break;
+  case 0b0010:
+    // LSL (2)
+    if (((cpu->regs[rm] & 0xFF) < 32) && ((cpu->regs[rm] & 0xFF) != 0)) {
+      c_flag = (cpu->regs[rd] >> (32 - (cpu->regs[rm] & 0xFF))) & 0x1;
+      cpu->regs[rd] = cpu->regs[rd] << (cpu->regs[rm] & 0xFF);
+    } else if ((cpu->regs[rm] & 0xFF) == 32) {
+      c_flag = cpu->regs[rd] & 0x1;
+      cpu->regs[rd] = 0;
+    } else if ((cpu->regs[rm] & 0xFF) > 32) {
+      c_flag = 0;
+      cpu->regs[rd] = 0;
+    }
+
+    n_flag = cpu->regs[rd] >> 31;
+    z_flag = !cpu->regs[rd];
+
+    break;
+  case 0b0011:
+    // LSR (2)
+    if (((cpu->regs[rm] & 0xFF) < 32) && ((cpu->regs[rm] & 0xFF) != 0)) {
+      c_flag = (cpu->regs[rd] >> ((cpu->regs[rm] & 0xFF) - 1)) & 0x1;
+      cpu->regs[rd] = cpu->regs[rd] >> (cpu->regs[rm] & 0xFF);
+    } else if ((cpu->regs[rm] & 0xFF) == 32) {
+      c_flag = cpu->regs[rd] >> 31;
+      cpu->regs[rd] = 0;
+    } else if ((cpu->regs[rm] & 0xFF) > 32) {
+      c_flag = 0;
+      cpu->regs[rd] = 0;
+    }
+
+    n_flag = cpu->regs[rd] >> 31;
+    z_flag = !cpu->regs[rd];
+
+    break;
+  case 0b0100:
+    // ASR (2)
+    if (((cpu->regs[rm] & 0xFF) < 32) && ((cpu->regs[rm] & 0xFF) != 0)) {
+      c_flag = (cpu->regs[rd] >> ((cpu->regs[rm] & 0xFF) - 1)) & 0x1;
+      cpu->regs[rd] = (int32_t)cpu->regs[rd] >> (cpu->regs[rm] & 0xFF);
+    } else if ((cpu->regs[rm] & 0xFF) >= 32) {
+      c_flag = cpu->regs[rd] >> 31;
+
+      if (c_flag == 0) {
+        cpu->regs[rd] = 0;
+      } else {
+        cpu->regs[rd] = 0xFFFFFFFF;
+      }
+    }
+
+    n_flag = cpu->regs[rd] >> 31;
+    z_flag = !cpu->regs[rd];
+
+    break;
+  case 0b0101:
+    // ADC
+    temp = cpu->regs[rd];
+    cpu->regs[rd] += cpu->regs[rm] + c_flag;
+    n_flag = cpu->regs[rd] >> 31;
+    z_flag = !cpu->regs[rd];
+    c_flag = carry_from(temp, cpu->regs[rm], c_flag);
+    v_flag = overflow_from(temp, cpu->regs[rm], cpu->regs[rd], 0);
+    break;
+  case 0b0110:
+    // SBC
+    temp = cpu->regs[rd];
+    cpu->regs[rd] -= cpu->regs[rm] - !c_flag;
+    n_flag = cpu->regs[rd] >> 31;
+    z_flag = !cpu->regs[rd];
+    c_flag = !borrow_from(temp, cpu->regs[rm], !c_flag);
+    v_flag = overflow_from(temp, cpu->regs[rm], cpu->regs[rd], 1);
+    break;
+  case 0b0111:
+    // ROR
+    if (((cpu->regs[rm] & 0xFF) != 0) && ((cpu->regs[rm] & 0xF) == 0)) {
+      c_flag = (cpu->regs[rd] >> 31);
+    } else if ((cpu->regs[rm] & 0xF) > 0) {
+      c_flag = (cpu->regs[rd] >> ((cpu->regs[rm] & 0xF) - 1)) & 0x1;
+      cpu->regs[rd] = rotate_right(cpu->regs[rd], cpu->regs[rm] & 0xF);
+    }
+
+    n_flag = cpu->regs[rd] >> 31;
+    z_flag = !cpu->regs[rd];
+    break;
+  case 0b1000:
+    // TST
+    temp = cpu->regs[rd] & cpu->regs[rm];
+    n_flag = temp >> 31;
+    z_flag = !temp;
+    break;
+  case 0b1001:
+    // NEG
+    cpu->regs[rd] = 0 - cpu->regs[rm];
+    n_flag = cpu->regs[rd] >> 31;
+    z_flag = !cpu->regs[rd];
+    c_flag = !borrow_from(0, cpu->regs[rm], 0);
+    v_flag = overflow_from(0, cpu->regs[rm], cpu->regs[rd], 1);
+    break;
+  case 0b1010:
+    // CMP (2)
+    temp = cpu->regs[rd] - cpu->regs[rm];
+    n_flag = temp >> 31;
+    z_flag = !temp;
+    c_flag = !borrow_from(cpu->regs[rd], cpu->regs[rm], 0);
+    v_flag = overflow_from(cpu->regs[rd], cpu->regs[rm], temp, 1);
+    break;
+  case 0b1011:
+    // CMN
+    temp = cpu->regs[rd] + cpu->regs[rm];
+    n_flag = temp >> 31;
+    z_flag = !temp;
+    c_flag = carry_from(cpu->regs[rd], cpu->regs[rm], 0);
+    v_flag = overflow_from(cpu->regs[rd], cpu->regs[rm], temp, 0);
+    break;
+  case 0b1100:
+    // ORR
+    cpu->regs[rd] = cpu->regs[rd] | cpu->regs[rm];
+    n_flag = cpu->regs[rd] >> 31;
+    z_flag = !cpu->regs[rd];
+    break;
+  case 0b1101:
+    // MUL
+    cpu->regs[rd] = cpu->regs[rd] * cpu->regs[rm];
+    n_flag = cpu->regs[rd] >> 31;
+    z_flag = !cpu->regs[rd];
+    break;
+  case 0b1110:
+    // BIC
+    cpu->regs[rd] = cpu->regs[rd] & ~cpu->regs[rm];
+    n_flag = cpu->regs[rd] >> 31;
+    z_flag = !cpu->regs[rd];
+    break;
+  case 0b1111:
+    // MVN
+    cpu->regs[rd] = ~cpu->regs[rm];
+    n_flag = cpu->regs[rd] >> 31;
+    z_flag = !cpu->regs[rd];
+    break;
+  }
+
+  set_cpsr(cpu, n_flag, z_flag, c_flag, v_flag);
+}
+
 void run_cpu(GBA_CPU *cpu, GBA_Memory *mem) {
   if (cpu->CPSR & CPSR_T_BIT) { // Check the 5th bit for arm/thumb mode
     // Thumb
     uint16_t inst = readmem16(mem, cpu->regs[15]);
     cpu->regs[15] += 2;
-    switch (decode_thumb(inst)) {}
+
+    switch (decode_thumb(inst)) {
+    case ALUOperations:
+      decode_execute_alu_operations(cpu, inst);
+      break;
+    case UnimplementedTHUMB:
+      break;
+    }
   } else {
     // Arm
     uint32_t inst = readmem32(mem, cpu->regs[15]);

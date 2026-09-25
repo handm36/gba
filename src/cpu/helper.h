@@ -77,3 +77,5 @@ int current_mode_has_SPSR(GBA_CPU *cpu);
 uint32_t get_current_spsr(GBA_CPU *cpu);
 int number_of_set_bits_in(uint32_t num);
 uint32_t rotate_right(uint32_t data, uint32_t rotate_by);
+void set_cpsr(GBA_CPU *cpu, uint8_t n_flag, uint8_t z_flag, uint8_t c_flag,
+              uint8_t v_flag);

@@ -324,3 +324,11 @@ uint32_t rotate_right(uint32_t data, uint32_t rotate_by) {
 
   return (data >> (rotate_by)) | (data << (32 - (rotate_by)));
 }
+
+void set_cpsr(GBA_CPU *cpu, uint8_t n_flag, uint8_t z_flag, uint8_t c_flag,
+              uint8_t v_flag) {
+  cpu->CPSR =
+      (cpu->CPSR & ~(OVERFLOW_FLAG | CARRY_FLAG | ZERO_FLAG | SIGN_FLAG)) |
+      (v_flag << OVERFLOW_FLAG_LOC) | (c_flag << CARRY_FLAG_LOC) |
+      (z_flag << ZERO_FLAG_LOC) | (n_flag << SIGN_FLAG_LOC);
+}
